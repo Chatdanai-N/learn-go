@@ -1,0 +1,71 @@
+
+
+การทำ Benchmark (การวัดประสิทธิภาพการทำงานของโค้ด) ในภาษา Go 
+ด้วยแพ็กเกจมาตรฐาน testing มีขั้นตอนและหลักการสำคัญดังนี้ครับ
+
+1. กฎการตั้งชื่อไฟล์และฟังก์ชัน
+    ชื่อไฟล์: ต้องลงท้ายด้วย _test.go (เช่น algo_test.go)
+    ชื่อฟังก์ชัน: ต้องขึ้นต้นด้วยคำว่า Benchmark ตามด้วยตัวพิมพ์ใหญ่ (เช่น BenchmarkRandInt) 
+    และรับพารามิเตอร์เป็น b *testing.B
+
+    func BenchmarkXxx(b *testing.B) {
+        // โค้ดสำหรับ benchmark
+    }
+
+2. โครงสร้างการเขียน Benchmark Loop
+
+    แบบมาตรฐานใหม่ (แนะนำ): ใช้ b.Loop()
+    b.Loop() จะนับเวลาเฉพาะการทำงานภายในลูปเท่านั้น ทำให้สามารถเขียนการเตรียมข้อมูล (Setup) 
+    ไว้ข้างนอกได้เลยโดยไม่ส่งผลต่อการจับเวลา
+
+
+    func BenchmarkBigLen(b *testing.B) {
+        big := NewBig() // Expensive setup (จะไม่ถูกนำมารวมในการจับเวลา)
+
+        for b.Loop() {
+            big.Len()   // ส่วนที่ต้องการวัดประสิทธิภาพ
+        }
+    }
+
+
+    แบบดั้งเดิม: ใช้ b.N
+
+    func BenchmarkBigLen(b *testing.B) {
+        big := NewBig()
+        b.ResetTimer() // รีเซ็ตตัวจับเวลาเพื่อไม่ให้นับรวมเวลาการ Setup
+
+        for range b.N {
+            big.Len()
+        }
+    }
+
+3. การทดสอบแบบ Concurrency (b.RunParallel)
+    หากต้องการวัดประสิทธิภาพเมื่อทำงานพร้อมกันหลาย Goroutine 
+    สามารถใช้ b.RunParallel ร่วมกับ pb.Next() ได้:
+
+    func BenchmarkTemplateParallel(b *testing.B) {
+        templ := template.Must(template.New("test").Parse("Hello, {{.}}!"))
+
+        b.RunParallel(func(pb *testing.PB) {
+            var buf bytes.Buffer
+            for pb.Next() {
+                buf.Reset()
+                templ.Execute(&buf, "World")
+            }
+        })
+    }
+
+4. คำสั่งสั่งรัน Benchmark ผ่าน Terminal
+go test -bench=.	รัน Benchmark ทุกตัวในแพ็กเกจ
+go test -bench=BenchmarkRandInt	รันเฉพาะ Benchmark ที่ชื่อตรงกับ Pattern
+go test -bench=. -benchmem	รันพร้อมแสดงข้อมูลการจองหน่วยกิต (Memory Allocations)
+go test -bench=. -benchtime=5s	ปรับระยะเวลาในการรัน Benchmark (เช่น รันอย่างน้อย 5 วินาที)
+
+
+5. ตัวอย่างผลลัพธ์และการอ่านค่า
+BenchmarkRandInt-8    68453040    17.8 ns/op    0 B/op    0 allocs/op
+BenchmarkRandInt-8: ชื่อ Benchmark และจำนวน CPU Core ที่ใช้ (GOMAXPROCS = 8)
+68453040: จำนวนรอบที่ลูปทำงานไปทั้งหมด
+17.8 ns/op: เวลาเฉลี่ยต่อการรัน 1 รอบ (นาโนวินาที)
+0 B/op: ปริมาณ Memory ที่ใช้ต่อ 1 รอบ (แสดงเมื่อใช้ flag -benchmem)
+0 allocs/op: จำนวนครั้งที่มีการ Allocate Memory ต่อ 1 รอบ (แสดงเมื่อใช้ flag -benchmem)
